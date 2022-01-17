@@ -54,6 +54,7 @@ public class MapperProxy<T> implements InvocationHandler, Serializable {
   static {
     Method privateLookupIn;
     try {
+      // 这里只有JDK 9及以上有这个方法privateLookupIn
       privateLookupIn = MethodHandles.class.getMethod("privateLookupIn", Class.class, MethodHandles.Lookup.class);
     } catch (NoSuchMethodException e) {
       privateLookupIn = null;
@@ -62,7 +63,7 @@ public class MapperProxy<T> implements InvocationHandler, Serializable {
 
     Constructor<Lookup> lookup = null;
     if (privateLookupInMethod == null) {
-      // JDK 1.8
+      // JDK 1.8 MethodHandles.Lookup有个私有的构造方法
       try {
         lookup = MethodHandles.Lookup.class.getDeclaredConstructor(Class.class, int.class);
         lookup.setAccessible(true);
@@ -80,9 +81,11 @@ public class MapperProxy<T> implements InvocationHandler, Serializable {
   @Override
   public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
     try {
+      // 如果方法是Object中声明的方法，则直接执行
       if (Object.class.equals(method.getDeclaringClass())) {
         return method.invoke(this, args);
       } else {
+        // 否则是代理执行
         return cachedInvoker(method).invoke(proxy, method, args, sqlSession);
       }
     } catch (Throwable t) {
@@ -90,9 +93,18 @@ public class MapperProxy<T> implements InvocationHandler, Serializable {
     }
   }
 
+  /**
+   * 尝试去拿到缓存的方法代理类
+   *
+   * @param method 方法
+   * @return
+   * @throws Throwable
+   */
   private MapperMethodInvoker cachedInvoker(Method method) throws Throwable {
     try {
+      // methodCache中没有，则放入，否则直接返回
       return MapUtil.computeIfAbsent(methodCache, method, m -> {
+        // 接口中默认方法，在Java8和9中创建方式不一样，底层都是MethodHandler
         if (m.isDefault()) {
           try {
             if (privateLookupInMethod == null) {
@@ -105,6 +117,7 @@ public class MapperProxy<T> implements InvocationHandler, Serializable {
             throw new RuntimeException(e);
           }
         } else {
+          // 非接口中默认方法，底层是MapperMethod.execute方法
           return new PlainMethodInvoker(new MapperMethod(mapperInterface, method, sqlSession.getConfiguration()));
         }
       });
